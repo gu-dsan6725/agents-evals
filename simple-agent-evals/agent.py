@@ -21,9 +21,7 @@ from strands.telemetry import StrandsTelemetry
 
 from tools import (
     duckduckgo_search,
-    get_current_time,
     get_directions,
-    get_exchange_rate,
     get_weather,
 )
 
@@ -108,7 +106,7 @@ def _create_agent() -> Agent:
     Returns:
         Configured Agent instance
     """
-    logger.info("Creating Strands agent with search, weather, directions, timezone, and currency tools")
+    logger.info("Creating Strands agent with search, weather, and directions tools")
 
     tracer_provider = _setup_observability()
     telemetry = StrandsTelemetry(tracer_provider=tracer_provider)
@@ -128,7 +126,7 @@ def _create_agent() -> Agent:
     agent = Agent(
         system_prompt=system_prompt,
         model=model,
-        tools=[duckduckgo_search, get_weather, get_directions, get_current_time, get_exchange_rate]
+        tools=[duckduckgo_search, get_weather, get_directions]
     )
 
     logger.info("Agent created successfully")
@@ -156,7 +154,7 @@ def main() -> None:
     print("Simple Agent with Search, Weather, and Directions")
     print("=" * 80 + "\n")
 
-    print("Ask me anything! I can search the web, check weather, get directions, check time zones, and convert currencies.")
+    print("Ask me anything! I can search the web, check weather, and get directions.")
     print("Type 'quit' to exit.\n")
 
     while True:
