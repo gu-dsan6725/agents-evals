@@ -21,6 +21,7 @@ dependencies = [
     "opentelemetry-sdk>=1.21.0",
     "requests>=2.31.0",
     "autoevals>=0.0.80",
+    "strands-agents-evals>=0.1.0",
 ]
 
 [build-system]

@@ -15,26 +15,17 @@ Build a multi-tool agent and evaluate it using Braintrust autoevals and custom s
 - Built-in LLM-as-judge scorers (Factuality, ClosedQA)
 - Writing custom heuristic scorers (tool selection, response completeness, latency)
 
-### Lab 2: Agent Evaluations with Ground Truth (Coming Soon)
+### Lab 2: Multi-Turn Agent Evals with ActorSimulator
 
-Compute evaluation metrics by comparing agent outputs against known ground truth answers.
-
-**What You'll Learn**:
-- Designing ground truth datasets for agent evaluation
-- Computing evaluation metrics (accuracy, faithfulness, relevance, tool use correctness)
-- Understanding component-level vs end-to-end evaluation
-- Why agent evaluations are harder than standard LLM evaluations
-
-### Lab 3: Agent Evaluations with Frameworks (Coming Soon)
-
-Use evaluation frameworks and tools to systematically evaluate agent performance.
+Evaluate a customer support agent through realistic multi-turn conversations
+using Strands ActorSimulator and diverse user personas.
 
 **What You'll Learn**:
-- Amazon Bedrock AgentCore built-in evaluation metrics
-- Braintrust evaluation and scoring
-- Langfuse evaluation capabilities
-- LLM-as-judge evaluation patterns
-- Automated evaluation pipelines
+- Building a customer support agent with mock backend tools
+- Using Strands ActorSimulator to simulate user personas (polite, demanding, confused)
+- Multi-turn conversation evaluation with goal completion detection
+- Custom scorers for conversation quality, policy adherence, and turn efficiency
+- tau-bench-style evaluation patterns for customer service domains
 
 ## Overview
 
@@ -82,7 +73,20 @@ uv sync
    ```
 4. Run evaluations:
    ```bash
-   uv run python eval.py
+   uv run python eval.py 2>&1 | tee debug.log
+   ```
+
+### 4. Lab 2 - Multi-Turn Agent Evals
+
+1. Configure:
+   ```bash
+   cd multi-turn-agent-evals
+   cp .env.example .env
+   # Edit .env with your API keys
+   ```
+2. Run evaluations:
+   ```bash
+   uv run python eval.py 2>&1 | tee debug.log
    ```
 
 ## Project Structure
@@ -99,11 +103,15 @@ agents-evals/
 │   ├── README.md                          # Setup and usage guide
 │   └── .env.example                       # Environment template
 │
-├── agent-evals-ground-truth/              # Lab 2: Ground Truth Evals (Coming Soon)
-│   └── ...
+├── multi-turn-agent-evals/                # Lab 2: Multi-Turn Conversation Evals
+│   ├── agent.py                           # Customer support agent (5 tools)
+│   ├── eval.py                            # Multi-turn eval with ActorSimulator
+│   ├── tools.py                           # Mock backend tools (orders, products, returns)
+│   ├── scenarios.json                     # 10 conversation scenarios with personas
+│   ├── README.md                          # Setup and usage guide
+│   └── .env.example                       # Environment template
 │
-└── agent-evals-frameworks/                # Lab 3: Framework Evals (Coming Soon)
-    └── ...
+└── agent-evaluation-theory.md             # Theory: online/offline evals, scorer types
 ```
 
 ## Key Concepts
