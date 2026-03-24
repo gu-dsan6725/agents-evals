@@ -11,8 +11,9 @@ in customer service domains (airline, retail, banking).
 
 Usage:
     uv run python eval.py
-    uv run python eval.py --dataset scenarios.json
-    uv run python eval.py --output eval_metrics.json
+    uv run python eval.py --sample-size 0              # run all scenarios
+    uv run python eval.py --sample-size 3              # run first 3 scenarios
+    uv run python eval.py --dataset scenarios.json --output eval_metrics.json
     uv run python eval.py --max-turns 8 --debug
 """
 
@@ -27,11 +28,13 @@ from typing import (
 )
 
 from dotenv import load_dotenv
-from strands_evals import (
-    Case,
-    Dataset,
-)
+from strands import Agent
+from strands.models import AnthropicModel
+from strands.tools.decorator import tool as strands_tool
+from strands_evals import Case
 from strands_evals.simulation import ActorSimulator
+from strands_evals.simulation.actor_simulator import DEFAULT_USER_SIMULATOR_PROMPT_TEMPLATE
+from strands_evals.types.simulation import ActorProfile
 
 
 # Configure logging
@@ -49,8 +52,65 @@ load_dotenv()
 # Constants
 DEFAULT_DATASET_PATH = "scenarios.json"
 DEFAULT_OUTPUT_PATH = "eval_metrics.json"
+DEFAULT_METRICS_FILE = "metrics.txt"
+DEFAULT_SAMPLE_SIZE = 5
 DEFAULT_MAX_TURNS = 6
 STOP_TOKEN = "<stop/>"
+SIMULATOR_MODEL_ID = "claude-haiku-4-5-20251001"
+
+
+# ---------------------------------------------------------------------------
+# Custom goal completion tool (replaces the built-in one that uses Bedrock)
+# ---------------------------------------------------------------------------
+
+GOAL_COMPLETION_PROMPT = (
+    "Please evaluate the following conversation against its intended goals using this\n"
+    "3-point assessment scale:\n\n"
+    "1 = Does not meet the goal at all\n"
+    "2 = Partially meets the goal with significant gaps\n"
+    "3 = Fully meets the goal\n\n"
+    "Initial Goal:\n{initial_goal}\n\n"
+    "Conversation to evaluate:\n{conversation}\n\n"
+    "Please provide:\n- A score (1-3)\n- Brief one line justification"
+)
+
+
+@strands_tool
+def get_conversation_goal_completion(
+    initial_goal: str,
+    conversation: list[dict[str, str]],
+) -> str:
+    """Evaluate conversation goal completion using a 3-point assessment scale.
+
+    Args:
+        initial_goal: The actor's original goal or objective.
+        conversation: List of conversation turns with role and content keys.
+
+    Returns:
+        Assessment string with score and justification.
+    """
+    formatted_turns = []
+    for turn in conversation:
+        role = turn.get("role", "").strip().upper()
+        content = turn.get("content", "").strip()
+        if role and content:
+            formatted_turns.append(f"{role}: {content}")
+
+    conversation_text = "\n\n".join(formatted_turns)
+    prompt = GOAL_COMPLETION_PROMPT.format(
+        initial_goal=initial_goal,
+        conversation=conversation_text,
+    )
+
+    # Use AnthropicModel instead of the default Bedrock model
+    model = AnthropicModel(
+        model_id=SIMULATOR_MODEL_ID,
+        max_tokens=512,
+    )
+    goal_agent = Agent(model=model, callback_handler=None)
+    response = goal_agent(prompt)
+    logger.info("Successfully completed goal completion assessment")
+    return str(response)
 
 
 # ---------------------------------------------------------------------------
@@ -163,8 +223,36 @@ def _run_multi_turn_conversation(
 
     case = _scenario_to_case(scenario)
 
-    actor = ActorSimulator.from_case_for_user_simulator(
-        case=case,
+    # Build ActorProfile directly instead of using from_case_for_user_simulator
+    # which internally creates a Bedrock-default agent for profile generation.
+    # This avoids any dependency on AWS credentials.
+    # ActorProfile.traits expects a dict, so convert the list to key-value pairs
+    trait_list = scenario.get("actor_traits", ["neutral"])
+    traits_dict = {trait: True for trait in trait_list}
+
+    actor_profile = ActorProfile(
+        traits=traits_dict,
+        context=scenario.get("task_description", case.input),
+        actor_goal=scenario.get("expected_outcome", "Complete the task successfully"),
+    )
+
+    # Use AnthropicModel for the simulator so it calls the Anthropic API
+    # directly instead of defaulting to Amazon Bedrock
+    simulator_model = AnthropicModel(
+        model_id=SIMULATOR_MODEL_ID,
+        max_tokens=2048,
+    )
+
+    # Monkey-patch the built-in goal completion tool so the ActorSimulator
+    # uses our Anthropic-based version instead of the Bedrock-default one
+    import strands_evals.simulation.actor_simulator as _actor_module
+    _actor_module.get_conversation_goal_completion = get_conversation_goal_completion
+
+    actor = ActorSimulator(
+        actor_profile=actor_profile,
+        initial_query=case.input,
+        system_prompt_template=DEFAULT_USER_SIMULATOR_PROMPT_TEMPLATE,
+        model=simulator_model,
         max_turns=max_turns,
     )
 
@@ -429,24 +517,28 @@ def _score_policy_adherence(
 # ---------------------------------------------------------------------------
 
 
-def _print_eval_summary(
+def _build_eval_summary(
     all_results: list[dict],
     all_scores: list[dict],
-) -> None:
+) -> str:
     """
-    Print a detailed summary of multi-turn evaluation results.
+    Build a detailed summary string of multi-turn evaluation results.
 
     Args:
         all_results: List of conversation result dictionaries
         all_scores: List of score dictionaries (one per scenario)
-    """
-    print("\n" + "=" * 80)
-    print("MULTI-TURN EVALUATION SUMMARY")
-    print("=" * 80)
-    print(f"Total scenarios: {len(all_results)}")
-    print()
 
-    # Aggregate scores per scorer
+    Returns:
+        Formatted summary string
+    """
+    lines = []
+    lines.append("")
+    lines.append("=" * 80)
+    lines.append("MULTI-TURN EVALUATION SUMMARY")
+    lines.append("=" * 80)
+    lines.append(f"Total scenarios: {len(all_results)}")
+    lines.append("")
+
     scorer_names = [
         "GoalCompletion",
         "ToolUsage",
@@ -455,29 +547,29 @@ def _print_eval_summary(
         "PolicyAdherence",
     ]
 
-    print("-" * 80)
-    print(f"{'Scorer':<25} {'Avg Score':>10} {'Min':>8} {'Max':>8} {'Count':>8}")
-    print("-" * 80)
+    lines.append("-" * 80)
+    lines.append(f"{'Scorer':<25} {'Avg Score':>10} {'Min':>8} {'Max':>8} {'Count':>8}")
+    lines.append("-" * 80)
 
     for scorer_name in scorer_names:
         scores = [s[scorer_name] for s in all_scores if scorer_name in s]
         if scores:
             avg = sum(scores) / len(scores)
-            print(
+            lines.append(
                 f"{scorer_name:<25} {avg:>10.2%} "
                 f"{min(scores):>8.2f} {max(scores):>8.2f} {len(scores):>8}"
             )
 
-    print()
+    lines.append("")
 
     # Per-category breakdown
     categories = sorted(set(r["category"] for r in all_results))
-    print("-" * 80)
-    print("PER-CATEGORY BREAKDOWN")
-    print("-" * 80)
+    lines.append("-" * 80)
+    lines.append("PER-CATEGORY BREAKDOWN")
+    lines.append("-" * 80)
 
     for category in categories:
-        print(f"\n  [{category}]")
+        lines.append(f"\n  [{category}]")
         cat_scores = [
             s for s, r in zip(all_scores, all_results) if r["category"] == category
         ]
@@ -485,19 +577,19 @@ def _print_eval_summary(
             scores = [s[scorer_name] for s in cat_scores if scorer_name in s]
             if scores:
                 avg = sum(scores) / len(scores)
-                print(f"    {scorer_name:<23} {avg:>8.2%}  ({len(scores)} cases)")
+                lines.append(f"    {scorer_name:<23} {avg:>8.2%}  ({len(scores)} cases)")
 
-    print()
+    lines.append("")
 
     # Per-persona breakdown
     personas = sorted(set(r["persona"] for r in all_results))
     if len(personas) > 1:
-        print("-" * 80)
-        print("PER-PERSONA BREAKDOWN")
-        print("-" * 80)
+        lines.append("-" * 80)
+        lines.append("PER-PERSONA BREAKDOWN")
+        lines.append("-" * 80)
 
         for persona in personas:
-            print(f"\n  [{persona}]")
+            lines.append(f"\n  [{persona}]")
             persona_scores = [
                 s for s, r in zip(all_scores, all_results) if r["persona"] == persona
             ]
@@ -506,29 +598,56 @@ def _print_eval_summary(
             avg_turns = sum(
                 r["turns"] for r in all_results if r["persona"] == persona
             ) / max(len(persona_scores), 1)
-            print(f"    GoalCompletion:       {avg_goal:>8.2%}  ({len(persona_scores)} cases)")
-            print(f"    Avg turns:            {avg_turns:>8.1f}")
+            lines.append(f"    GoalCompletion:       {avg_goal:>8.2%}  ({len(persona_scores)} cases)")
+            lines.append(f"    Avg turns:            {avg_turns:>8.1f}")
 
-    print()
+    lines.append("")
 
     # Conversation details
-    print("-" * 80)
-    print("SCENARIO DETAILS")
-    print("-" * 80)
+    lines.append("-" * 80)
+    lines.append("SCENARIO DETAILS")
+    lines.append("-" * 80)
 
     for result, scores in zip(all_results, all_scores):
         status = "PASS" if result["goal_completed"] else "FAIL"
-        print(
+        lines.append(
             f"\n  [{status}] {result['scenario_name']} "
             f"({result['persona']}, {result['turns']} turns, "
             f"{result['latency_seconds']:.1f}s)"
         )
-        print(f"    Tools: {result['tools_used']}")
+        lines.append(f"    Tools: {result['tools_used']}")
         for scorer_name in scorer_names:
             if scorer_name in scores:
-                print(f"    {scorer_name}: {scores[scorer_name]:.2f}")
+                lines.append(f"    {scorer_name}: {scores[scorer_name]:.2f}")
 
-    print("\n" + "=" * 80 + "\n")
+    lines.append("")
+    lines.append("=" * 80)
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def _print_and_save_summary(
+    all_results: list[dict],
+    all_scores: list[dict],
+    metrics_file: str,
+) -> None:
+    """
+    Print evaluation summary to stdout and save to a metrics text file.
+
+    Args:
+        all_results: List of conversation result dictionaries
+        all_scores: List of score dictionaries (one per scenario)
+        metrics_file: Path to write the metrics text file
+    """
+    summary = _build_eval_summary(all_results, all_scores)
+
+    print(summary)
+
+    with open(metrics_file, "w") as f:
+        f.write(summary)
+
+    logger.info(f"Evaluation summary saved to {metrics_file}")
 
 
 def _export_eval_metrics(
@@ -623,11 +742,14 @@ def _parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Example usage:
-    # Run with default scenarios
+    # Run with default 5 scenarios
     uv run python eval.py
 
-    # Run with custom scenarios and output
-    uv run python eval.py --dataset scenarios2.json --output eval_metrics2.json
+    # Run all scenarios
+    uv run python eval.py --sample-size 0
+
+    # Run 3 scenarios with custom dataset and output
+    uv run python eval.py --sample-size 3 --dataset scenarios2.json --output eval_metrics2.json
 
     # Run with more turns and debug logging
     uv run python eval.py --max-turns 8 --debug
@@ -647,10 +769,22 @@ Example usage:
         help=f"Path for the output eval metrics JSON (default: {DEFAULT_OUTPUT_PATH})",
     )
     parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=DEFAULT_SAMPLE_SIZE,
+        help=f"Number of scenarios to run (default: {DEFAULT_SAMPLE_SIZE}). Use 0 for all.",
+    )
+    parser.add_argument(
         "--max-turns",
         type=int,
         default=DEFAULT_MAX_TURNS,
         help=f"Maximum conversation turns per scenario (default: {DEFAULT_MAX_TURNS})",
+    )
+    parser.add_argument(
+        "--metrics-file",
+        type=str,
+        default=DEFAULT_METRICS_FILE,
+        help=f"Path for the metrics text summary file (default: {DEFAULT_METRICS_FILE})",
     )
     parser.add_argument(
         "--debug",
@@ -673,7 +807,16 @@ def main() -> None:
 
     # Load scenarios
     scenarios = _load_scenarios(args.dataset)
-    logger.info(f"Loaded {len(scenarios)} scenarios")
+
+    # Apply sample size (0 means all)
+    if args.sample_size == 0 or args.sample_size >= len(scenarios):
+        logger.info(f"Running all {len(scenarios)} scenarios")
+    else:
+        logger.info(
+            f"Running {args.sample_size} of {len(scenarios)} scenarios "
+            f"(use --sample-size 0 for all)"
+        )
+        scenarios = scenarios[:args.sample_size]
 
     # Run each scenario
     all_results = []
@@ -699,8 +842,8 @@ def main() -> None:
             f"Scores: {', '.join(f'{k}={v:.2f}' for k, v in scores.items())}"
         )
 
-    # Print summary and export metrics
-    _print_eval_summary(all_results, all_scores)
+    # Print summary, save to metrics file, and export JSON
+    _print_and_save_summary(all_results, all_scores, args.metrics_file)
     _export_eval_metrics(all_results, all_scores, args.output)
 
     elapsed = time.time() - start_time

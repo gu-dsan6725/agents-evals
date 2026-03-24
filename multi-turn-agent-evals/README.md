@@ -75,9 +75,6 @@ cp .env.example .env
 # Run evaluations with default scenarios
 uv run python eval.py 2>&1 | tee debug.log
 
-# Run with custom scenarios and output
-uv run python eval.py --dataset scenarios2.json --output eval_metrics2.json 2>&1 | tee debug2.log
-
 # Run with more turns and debug logging
 uv run python eval.py --max-turns 8 --debug 2>&1 | tee debug.log
 

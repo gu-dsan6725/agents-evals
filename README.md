@@ -1,35 +1,47 @@
 # Agent Evaluations Labs
 
-This repository contains hands-on labs teaching agent evaluation patterns for the Applied Generative AI course (DSAN 6725). Learn how to evaluate AI agents using ground truth comparison, automated metrics, and evaluation frameworks.
+Hands-on labs for the Applied Generative AI course (DSAN 6725) teaching
+how to evaluate AI agents using automated metrics, LLM-as-judge scorers,
+multi-turn conversation simulation, and evaluation frameworks.
 
 ## Available Labs
 
-### Lab 1: Simple Agent Evals with Braintrust
+### Lab 1: Single-Turn Agent Evals
 
-Build a multi-tool agent and evaluate it using Braintrust autoevals and custom scorers.
+**Folder**: `simple-agent-evals/`
 
-**What You'll Learn**:
-- Building a Strands agent with search, weather, and directions tools
-- Designing evaluation datasets for multi-tool agents
-- Using Braintrust `Eval()` for offline evaluation
-- Built-in LLM-as-judge scorers (Factuality, ClosedQA)
-- Writing custom heuristic scorers (tool selection, response completeness, latency)
+Evaluate a multi-tool agent on single-turn question-answer pairs using
+Braintrust autoevals and custom heuristic scorers.
 
-### Lab 2: Multi-Turn Agent Evals with ActorSimulator
+- **Agent**: Strands agent with 3 free tools (DuckDuckGo search, Open-Meteo weather, OSRM directions)
+- **Eval framework**: Braintrust `Eval()` for offline evaluation
+- **Scorers**: LLM-as-judge (Factuality, ClosedQA via Claude Sonnet 4.6) + custom heuristic (ToolSelection, ResponseCompleteness, Latency, NoError, ScopeAwareness)
+- **Dataset**: 25 test cases across 5 categories (search, weather, directions, multi_tool, out_of_scope)
+- **Exercise**: Analyze low-scoring cases, add 2 new tools and 5 test cases
+
+### Lab 2: Multi-Turn Agent Evals
+
+**Folder**: `multi-turn-agent-evals/`
 
 Evaluate a customer support agent through realistic multi-turn conversations
-using Strands ActorSimulator and diverse user personas.
+using Strands ActorSimulator with diverse user personas.
 
-**What You'll Learn**:
-- Building a customer support agent with mock backend tools
-- Using Strands ActorSimulator to simulate user personas (polite, demanding, confused)
-- Multi-turn conversation evaluation with goal completion detection
-- Custom scorers for conversation quality, policy adherence, and turn efficiency
-- tau-bench-style evaluation patterns for customer service domains
+- **Agent**: Customer support agent with 5 mock backend tools (order lookup, product search, returns, inventory, address update)
+- **Eval framework**: Strands `ActorSimulator` generates simulated users that engage the agent in dynamic conversations
+- **Scorers**: GoalCompletion, ToolUsage, TurnEfficiency, ConversationQuality, PolicyAdherence
+- **Dataset**: 10 conversation scenarios with 4 personas (polite, demanding, confused, neutral)
+- **Exercise**: Run evals, analyze one scenario's conversation flow and scores from debug.log
 
-## Overview
+### How the Labs Compare
 
-Evaluating AI agents is significantly harder than evaluating standard LLM outputs. Agents have multi-step reasoning, tool usage, and non-deterministic execution paths. These labs teach you practical approaches to agent evaluation using both manual ground truth comparison and automated frameworks.
+| Aspect | Lab 1: Single-Turn | Lab 2: Multi-Turn |
+|---|---|---|
+| Input | One question per test case | Opening message + simulated follow-ups |
+| User | Static (from dataset.json) | Dynamic (ActorSimulator with persona) |
+| Evaluation | Output vs expected answer | Conversation flow + goal completion |
+| Scorers | LLM-as-judge + heuristic | All heuristic (goal, tools, efficiency, quality, policy) |
+| Domain | General (search, weather, directions) | Customer support (orders, returns, products) |
+| Complexity | Simple Q&A | Tests context maintenance, multi-step resolution |
 
 ## Prerequisites
 
@@ -53,70 +65,65 @@ cd agents-evals
 uv sync
 ```
 
-### 3. Lab 1 - Simple Agent Evals
+### 3. Lab 1 - Single-Turn Agent Evals
 
-1. Get API keys:
-   - Anthropic: https://console.anthropic.com/
-   - Braintrust: https://www.braintrust.dev/
-2. Configure:
-   ```bash
-   cd simple-agent-evals
-   cp .env.example .env
-   # Edit .env and add:
-   #   ANTHROPIC_API_KEY
-   #   BRAINTRUST_API_KEY
-   #   BRAINTRUST_PROJECT
-   ```
-3. Run the agent:
-   ```bash
-   uv run python agent.py
-   ```
-4. Run evaluations:
-   ```bash
-   uv run python eval.py 2>&1 | tee debug.log
-   ```
+```bash
+cd simple-agent-evals
+cp .env.example .env
+# Edit .env with ANTHROPIC_API_KEY, BRAINTRUST_API_KEY, BRAINTRUST_PROJECT
+
+# Run the agent interactively
+uv run python agent.py
+
+# Run evaluations
+uv run python eval.py 2>&1 | tee debug.log
+```
 
 ### 4. Lab 2 - Multi-Turn Agent Evals
 
-1. Configure:
-   ```bash
-   cd multi-turn-agent-evals
-   cp .env.example .env
-   # Edit .env with your API keys
-   ```
-2. Run evaluations:
-   ```bash
-   uv run python eval.py 2>&1 | tee debug.log
-   ```
+```bash
+cd multi-turn-agent-evals
+cp .env.example .env
+# Edit .env with ANTHROPIC_API_KEY, BRAINTRUST_API_KEY, BRAINTRUST_PROJECT
+
+# Run evaluations (default: 5 scenarios)
+uv run python eval.py 2>&1 | tee debug.log
+
+# Run all 10 scenarios
+uv run python eval.py --sample-size 0 2>&1 | tee debug.log
+```
 
 ## Project Structure
 
 ```
 agents-evals/
-├── README.md                              # This file
-├── pyproject.toml                         # Shared dependencies
-│
-├── simple-agent-evals/                    # Lab 1: Braintrust Evals
-│   ├── agent.py                           # Multi-tool agent (search, weather, directions)
-│   ├── eval.py                            # Braintrust evals with autoevals + custom scorers
-│   ├── dataset.json                       # 25 test cases across tool categories
-│   ├── README.md                          # Setup and usage guide
-│   └── .env.example                       # Environment template
-│
-├── multi-turn-agent-evals/                # Lab 2: Multi-Turn Conversation Evals
-│   ├── agent.py                           # Customer support agent (5 tools)
-│   ├── eval.py                            # Multi-turn eval with ActorSimulator
-│   ├── tools.py                           # Mock backend tools (orders, products, returns)
-│   ├── scenarios.json                     # 10 conversation scenarios with personas
-│   ├── README.md                          # Setup and usage guide
-│   └── .env.example                       # Environment template
-│
-└── agent-evaluation-theory.md             # Theory: online/offline evals, scorer types
+    README.md                              -- This file
+    pyproject.toml                         -- Shared dependencies
+    agent-evaluation-theory.md             -- Theory: online/offline evals, scorer types
+
+    simple-agent-evals/                    -- Lab 1: Single-Turn Evals
+        agent.py                           -- Multi-tool agent (search, weather, directions)
+        tools.py                           -- Tool implementations (DuckDuckGo, Open-Meteo, OSRM)
+        eval.py                            -- Braintrust evals with autoevals + custom scorers
+        dataset.json                       -- 25 test cases across 5 categories
+        architecture.md                    -- Design documentation
+        EXERCISE.md                        -- Student exercise (100 points)
+        prompts/system_prompt.txt          -- Agent system prompt
+
+    multi-turn-agent-evals/                -- Lab 2: Multi-Turn Evals
+        agent.py                           -- Customer support agent (5 tools)
+        tools.py                           -- Mock backend tools (orders, products, returns)
+        eval.py                            -- Multi-turn eval with ActorSimulator
+        scenarios.json                     -- 10 conversation scenarios with personas
+        architecture.md                    -- Design documentation
+        EXERCISE.md                        -- Student exercise (50 points)
+        prompts/system_prompt.txt          -- Agent system prompt
 ```
 
 ## Key Concepts
 
-For a deep dive into evaluation theory, scoring approaches, and framework comparisons, see [Agent Evaluation Theory](agent-evaluation-theory.md).
+For a deep dive into evaluation theory, scoring approaches, and framework
+comparisons, see [Agent Evaluation Theory](agent-evaluation-theory.md).
 
 ### Why Agent Evaluations Are Hard
 
@@ -127,18 +134,18 @@ For a deep dive into evaluation theory, scoring approaches, and framework compar
 - **Statefulness**: Agent behavior depends on conversation history
 - **Cost vs quality tradeoffs**: More tool calls may improve quality but increase cost
 
-### Evaluation Approaches
+### Evaluation Approaches Used in These Labs
 
-- **Ground Truth Comparison**: Compare agent outputs against known correct answers
-- **LLM-as-Judge**: Use a capable LLM to assess agent outputs for quality, relevance, and correctness
-- **Custom Evaluators**: Build domain-specific evaluators tailored to your use case (e.g., medical accuracy, legal compliance, financial reasoning)
-- **Heuristic Metrics**: Programmatic checks like exact match, keyword presence, JSON validity, latency, and token usage
+- **LLM-as-Judge** (Lab 1): Claude Sonnet 4.6 evaluates agent outputs for factuality and correctness
+- **Heuristic Scorers** (Lab 1 + Lab 2): Programmatic checks for tool selection, latency, response completeness, policy adherence
+- **Multi-Turn Simulation** (Lab 2): ActorSimulator generates dynamic conversations with persona-driven user behavior
+- **Goal Completion Detection** (Lab 2): Simulated user emits stop token when satisfied, measuring task resolution
 
 ## Resources
 
 - [Strands Documentation](https://strandsagents.com/)
+- [Strands Evals Samples](https://github.com/strands-agents/samples/tree/main/07-evals)
 - [Braintrust Documentation](https://www.braintrust.dev/docs)
-- [OpenTelemetry GenAI Semantics](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
+- [tau-bench](https://github.com/sierra-research/tau-bench) -- Multi-turn agent benchmark
 - [Anthropic Claude Documentation](https://docs.anthropic.com/)
-- [Amazon Bedrock AgentCore Evals](https://docs.aws.amazon.com/agentcore/latest/userguide/eval-metrics.html)
 - [Princeton HAL (Holistic Agent Leaderboard)](https://hal.cs.princeton.edu/)
