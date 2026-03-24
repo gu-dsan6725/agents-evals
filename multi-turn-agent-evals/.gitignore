@@ -2,3 +2,5 @@
 __pycache__/
 *.pyc
 *.log
+eval_metrics*.json
+metrics*.txt
